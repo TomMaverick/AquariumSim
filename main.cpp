@@ -1,80 +1,100 @@
 #include <iostream>
-#include <thread>
 #include <chrono>
-#include <iomanip>
-#include "Simulation/WaterParameters.h"
-#include "Simulation/ChemistryEngine.h"
-#include "Simulation/Aquarium.h"
+#include <thread>
 
-// Hilfsfunktion für die Konsolenausgabe
-void printStatus(int hour, const Aquarium& tank) {
-    std::cout << std::fixed << std::setprecision(4) << std::left
-              << std::setw(8)  << hour
-              << std::setw(8)  << tank.water.ph
-              << std::setw(8)  << tank.water.kh
-              << std::setw(12) << tank.water.nh4
-              << std::setw(12) << tank.water.nh3
-              << std::setw(12) << tank.water.no2
-              << std::setw(12) << tank.water.no3
-              << std::setw(15) << tank.chemistry.nitrosomonas_bacteria
-              << std::setw(15) << tank.chemistry.nitrobacter_bacteria << "\n";
+// ImGui & GLFW Headers
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+#include <GLFW/glfw3.h>
+
+// Your Simulation Headers
+#include "Simulation/WaterParameters.h"
+#include "Simulation/Aquarium.h"
+#include "Frontend/UIManager.h"
+
+// Error callback for GLFW
+static void glfw_error_callback(int error, const char *description) {
+    std::cerr << "GLFW Error " << error << ": " << description << std::endl;
 }
 
 int main() {
-    // 1. Setup the Aquarium
-    WaterParameters initialWater = WaterParameters::createAverageTapWater(22.0);
+    if (!glfwInit()) return 1;
 
-    // Für diesen Test entfernen wir Nitrat und Ammonium komplett aus dem Leitungswasser
+    const char* glsl_version = "#version 130";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+
+    GLFWwindow* window = glfwCreateWindow(1920, 1080, "Aquarium Simulation Engine", nullptr, nullptr);
+    if (window == nullptr) return 1;
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init(glsl_version);
+
+    WaterParameters initialWater = WaterParameters::createAverageTapWater(22.0);
     initialWater.nh4 = 1.0;
     initialWater.no3 = 10.0;
 
-    Aquarium nanoCube(30.0, initialWater);
+    // --- NEU: Becken über das TankModel initialisieren ---
+    TankModel myTank = TankModel::dennerleNanoCube30();
+    Aquarium nanoCube(myTank, initialWater);
+
     nanoCube.addSpongeFilter();
-
-    // 2. Pflanzen hinzufügen (Gesamtverbrauch = 0.020 mg/h)
-    nanoCube.addPlant(OrganismFactory::createHornwortStem()); // 0.015 mg/h
-    nanoCube.addPlant(OrganismFactory::createAnubias());      // 0.005 mg/h
-
-    // 3. Garnelen hinzufügen (25 Stück * 0.0008 mg/h = 0.020 mg/h Produktion)
+    nanoCube.addPlant(OrganismFactory::createHornwortStem());
+    nanoCube.addPlant(OrganismFactory::createAnubias());
     for(int i = 0; i < 26; i++) {
         nanoCube.addAnimal(OrganismFactory::createNeocaridina());
     }
 
+    UIManager uiManager;
+    uiManager.initHistory(nanoCube);
+
     int tickCounter = 0;
-    bool isRunning = true;
-    double deltaTime = 1.0;
+    auto lastTime = std::chrono::steady_clock::now();
 
-    std::cout << "--- Dennerle Nano Cube 30L Simulation Started ---\n";
-    std::cout << "Setup: Tap water, Sponge Filter, 25x Neocaridina, 1x Hornwort Stem, 1x Anubias\n";
-    std::cout << "Target: Perfect balance (Shrimp NH4 production == Plant consumption)\n\n";
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
 
-    std::cout << std::left
-              << std::setw(8)  << "Hour"
-              << std::setw(8)  << "pH"
-              << std::setw(8)  << "KH"
-              << std::setw(12) << "NH4 (mg/L)"
-              << std::setw(12) << "NH3 (mg/L)"
-              << std::setw(12) << "NO2 (mg/L)"
-              << std::setw(12) << "NO3 (mg/L)"
-              << std::setw(15) << "Nitrosomonas"
-              << std::setw(15) << "Nitrobacter" << "\n";
-    std::cout << "------------------------------------------------------------------------------------------------------\n";
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
 
-    // Stunde 0 ausgeben
-    nanoCube.chemistry.update(nanoCube.water, 0.0, nanoCube.biological_capacity);
-    printStatus(tickCounter, nanoCube);
+        auto currentTime = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed = currentTime - lastTime;
 
-    while (isRunning) {
-        tickCounter++;
-        nanoCube.update(deltaTime);
-        printStatus(tickCounter, nanoCube);
-
-        if (tickCounter >= 2400) {
-            isRunning = false;
+        if (elapsed.count() >= 0.1) {
+            lastTime = currentTime;
+            if (!uiManager.isPaused()) {
+                tickCounter++;
+                nanoCube.update(1.0);
+                uiManager.updateHistory(nanoCube);
+            }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        uiManager.render(nanoCube, tickCounter);
+
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(0.05f, 0.05f, 0.05f, 1.00f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        glfwSwapBuffers(window);
     }
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    glfwDestroyWindow(window);
+    glfwTerminate();
 
     return 0;
 }
