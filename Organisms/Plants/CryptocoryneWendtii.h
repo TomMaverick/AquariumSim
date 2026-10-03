@@ -13,18 +13,20 @@ public:
 
         current_height_cm = 6.0;
         max_submersed_height_cm = 20.0;
-        max_emersed_height_cm = 10.0;      // Klassische Sumpfpflanze
+        max_emersed_height_cm = 10.0;
         can_grow_emersed = true;
-        base_growth_rate_cm_per_day = 0.3; // Moderates Rosetten-Wachstum
+        base_growth_rate_cm_per_day = 0.3;
 
         nitrogen_consumption_mg_per_hour = 0.008;
         po4_consumption_mg_per_hour = 0.001;
         fe_consumption_mg_per_hour = 0.0005;
+        k_consumption_mg_per_hour = 0.004;
         co2_consumption_mg_per_hour = 0.010;
         o2_production_mg_per_hour = 0.015;
 
-        min_temp_c = 20.0; max_temp_c = 28.0;
-        min_ph = 5.5; max_ph = 8.0;
+        min_temp_c = 18.0; max_temp_c = 28.0;
+        min_ph = 5.0; max_ph = 8.0;
+        min_gh = 2.0; max_gh = 20.0;
     }
 };
 
